@@ -1,0 +1,122 @@
+# Diff-scoped complexity gate for GitLab CI.
+#
+# Include it from .gitlab-ci.yml:
+#
+#   include:
+#     - local: ci/gitlab/complexity.yml
+#
+# and make sure the `stage:` below names a stage your pipeline defines.
+#
+# NON-BLOCKING BY DESIGN (allow_failure: true). This reports a shape problem,
+# not a correctness or security one, so it surfaces on the merge request and
+# never stops it. Flip allow_failure to false once your team has run it long
+# enough to trust the bar.
+#
+# DIFF-SCOPED, not whole-tree. Measured on the monorepo this was extracted
+# from: a whole-tree run reported 276 findings across 81 files, so `--report .`
+# would fail every pipeline on pre-existing code while saying nothing about the
+# change under review. This scores only the files the merge request touches,
+# which is also what makes flipping allow_failure to false realistic later —
+# the question it answers is "did this change add complexity", and that has an
+# achievable answer of zero.
+#
+# RULE SUBSET. cyclomatic-complexity, nesting-depth, function-length and
+# parameter-count — deliberately not duplicate-block or file-length, which need
+# a real clone detector and flag pre-existing size respectively. This job passes
+# no --rules: that list is complexity-report.py's default, and its module
+# docstring carries the per-class reasoning. Widening it is a triage-capacity
+# decision.
+#
+# SHARED THRESHOLDS. The numbers come from .claude/hooks/complexity_thresholds.json,
+# the same file the agent-time PostToolUse hook and the
+# reduce-cyclomatic-complexity skill read. One bar in three places, not three.
+# That file's "mode" field is NOT read here: it controls only whether the agent
+# hook blocks a write. CI enforcement is allow_failure, above.
+complexity_gate:
+  stage: test
+  image: python:3.13-slim@sha256:7ce4b6dfe35e55397b7cda544f8a13f191b7ae28dc5aad71fe664dbc9bc2623f
+  allow_failure: true
+  variables:
+    # The diff base is an ancestor commit, and the default shallow clone
+    # (GIT_DEPTH: 20) does not guarantee it is present — `git diff` against a
+    # missing SHA fails, and the fallback below would then silently score the
+    # whole tree.
+    GIT_DEPTH: '0'
+  before_script:
+    # git and jq are both absent from python:3.13-slim (verified against the
+    # pinned digest). git is needed before the script even runs — the runner
+    # clones with it — so it is installed here rather than mid-script. jq is
+    # NOT installed: the assertions below use python -c instead, since this
+    # image already ships the interpreter and adding a package to get a tool we
+    # have an equivalent for is a supply-chain surface for no gain.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    # Version-and-hash pinned via scripts/complexity-requirements.txt, not a
+    # bare `pip install lizard`. This job runs on merge request pipelines
+    # including from forks, and pip runs packaging code at install time, so an
+    # unpinned resolve is third-party code executing in a job that carries
+    # CI_JOB_TOKEN. --require-hashes is what makes the pin real: without it a
+    # matching version from a different artifact still installs.
+    - pip install --quiet --no-cache-dir --require-hashes -r scripts/complexity-requirements.txt
+  script:
+    - mkdir -p gate-findings
+    # CI_MERGE_REQUEST_DIFF_BASE_SHA is the merge base GitLab computed for this
+    # merge request, and is set only in a merge request pipeline. On the default
+    # branch there is no diff base, so fall back to the previous commit: that
+    # keeps a post-merge run meaningful (it scores what the merge introduced)
+    # without ever falling back to the whole tree.
+    #
+    # Written outside gate-findings/ on purpose: that directory is uploaded as
+    # an artifact, and this is a scratch input, not a report.
+    #
+    # -z and --diff-filter=d: NUL separation survives a path containing a space,
+    # and d drops deletions, whose paths no longer exist to analyze. The
+    # reporter tolerates a missing path anyway; this keeps the count honest.
+    - |
+      base="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-HEAD~1}"
+      echo "complexity: diffing against $base"
+      git diff -z --name-only --diff-filter=d "$base"...HEAD > .changed-files
+    - python3 scripts/complexity-report.py
+      --files-from .changed-files
+      --out-dir gate-findings
+    # Distinguish "no findings" from "nothing ran". An empty merge request
+    # legitimately produces [], which is a valid non-empty file; a crashed
+    # reporter produces neither. test -s stays separate from the parse below so
+    # the size check holds even if the interpreter is what broke.
+    - test -s gate-findings/complexity.json
+    - test -s gate-findings/gl-code-quality-complexity.json
+    # Both files parse, and the Code Quality one is the array GitLab requires.
+    # An unparseable file raises, which exits non-zero; the shape check raises
+    # SystemExit rather than using assert, which `python3 -O` would strip.
+    - |
+      python3 <<'PY'
+      import json
+      json.load(open('gate-findings/complexity.json'))
+      d = json.load(open('gate-findings/gl-code-quality-complexity.json'))
+      if not isinstance(d, list):
+          raise SystemExit('code quality report is not a JSON array')
+      PY
+    # LAST, because it is informational and must not take the job's real work
+    # down with it if it ever fails.
+    #
+    # Block scalar + heredoc, not `python3 -c "..."` on one line. A plain YAML
+    # scalar ends at the first ": ", and this line's output text contains one —
+    # the remainder then parses as a flow mapping and the whole file fails to
+    # load. Quoting the scalar would work too, but the command already contains
+    # both quote characters, so the escaping is where the next bug would live.
+    - |
+      python3 <<'PY'
+      import json
+      d = json.load(open('gate-findings/complexity.json'))
+      print('complexity:', d['finding_count'], 'finding(s) over', ', '.join(d['rules']))
+      PY
+  artifacts:
+    when: always
+    expire_in: 90 days
+    name: gate-findings-complexity-$CI_COMMIT_SHORT_SHA
+    paths:
+      - gate-findings/
+    reports:
+      codequality: gate-findings/gl-code-quality-complexity.json
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

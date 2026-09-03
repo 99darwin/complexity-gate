@@ -1,0 +1,93 @@
+# This repository's own tests. The complexity gate it ships is a separate
+# workflow (complexity.yml), so a shape finding can never be confused with a
+# broken kit — that one is advisory, this one blocks.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor the suite is verified against. The kit is copied
+        # into other people's repositories and run by whatever python3 is on
+        # their runner, so the matrix is the claim about what that may be.
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      # Pinned to a commit SHA, not a tag: a tag is mutable, and an action
+      # release must not silently change what a gate reports. v4.4.0.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # v6.0.0.
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Both closures are hash-pinned for the reason each file's header states.
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --quiet --no-cache-dir --require-hashes \
+            -r scripts/complexity-requirements.txt \
+            -r scripts/complexity-dev-requirements.txt
+
+      - name: Test
+        run: .venv/bin/python -m pytest tests/ -q
+
+      # The kit holds itself to its own thresholds. Exits non-zero on a finding,
+      # which is stricter than what it does in a consuming repository on purpose:
+      # the one repository that cannot ship an over-threshold function is this one.
+      - name: Self-check
+        run: .venv/bin/python .claude/hooks/check_complexity.py --report .
+
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # The scratch install below is checked with lizard present. Without it the
+      # checker degrades to a notice and exits 0, so the smoke test would pass on
+      # an installation that cannot actually measure anything.
+      - name: Install analyzer
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet --no-cache-dir \
+            --require-hashes -r scripts/complexity-requirements.txt
+
+      # install.sh is POSIX sh and is the first thing anyone runs, so it is
+      # linted rather than trusted.
+      - name: Shellcheck
+        run: shellcheck install.sh .claude/hooks/run_check_complexity.sh
+
+      # .github/workflows/complexity.yml is a byte-identical copy of the example
+      # in ci/github/ — this repository dogfoods what it hands out. Without this
+      # check the two drift and the published example is the one that rots,
+      # because only the copy under .github/ actually runs.
+      - name: Workflow example matches the dogfood copy
+        run: cmp ci/github/complexity.yml .github/workflows/complexity.yml
+
+      # End-to-end: the installer must produce a working hook in a fresh
+      # repository, not just copy files that import each other by luck.
+      - name: Install into a scratch repository
+        run: |
+          target="$(mktemp -d)"
+          git -C "$target" init --quiet
+          ./install.sh "$target"
+          test -x "$target/.claude/hooks/run_check_complexity.sh"
+          test -f "$target/.claude/hooks/complexity_thresholds.json"
+          test -f "$target/.claude/skills/reduce-cyclomatic-complexity/SKILL.md"
+          grep -q 'run_check_complexity.sh' "$target/.claude/settings.json"
+          .venv/bin/python "$target/.claude/hooks/check_complexity.py" --report "$target/scripts"
+          # Idempotent: a second run must not clobber a tuned bar.
+          echo '{"max_cyclomatic_complexity": 42}' > "$target/.claude/hooks/complexity_thresholds.json"
+          ./install.sh "$target"
+          grep -q 42 "$target/.claude/hooks/complexity_thresholds.json"
+          test "$(grep -c 'hooks/.venv' "$target/.gitignore")" = 1

@@ -1,0 +1,14 @@
+# Per-clone venvs. The hook's venv lives beside the hook so run_check_complexity.sh
+# can find it without any PATH assumptions; it is never committed, because the
+# pinned closure in scripts/complexity-requirements.txt is the shareable part.
+.venv/
+.claude/hooks/.venv/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# What the CI gate writes.
+gate-findings/
+
+.DS_Store

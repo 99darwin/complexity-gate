@@ -1,0 +1,26 @@
+{
+  "_comment": "Shared thresholds for check_complexity.py (Claude Code PostToolUse hook) and the reduce-cyclomatic-complexity skill. Keep this the single source of truth so the agent-time hook, the skill, and CI all judge code by the same bar.",
+
+  "mode": "warn",
+  "_mode_comment": "'warn' = report findings, exit 0, never block. 'block' = exit 2 on any violation so Claude Code must fix it before continuing. Recommended: run 'warn' for one sprint to tune thresholds/excludes against real false-positive rate, then flip to 'block'.",
+
+  "max_cyclomatic_complexity": 10,
+  "max_function_length": 30,
+  "max_nesting_depth": 3,
+  "max_parameters": 4,
+  "max_file_lines": 300,
+
+  "duplicate_block_min_lines": 4,
+  "duplicate_block_min_occurrences": 2,
+
+  "include_extensions": [
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".java",
+    ".rb", ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".swift", ".m"
+  ],
+
+  "exclude_path_substrings": [
+    "/node_modules/", "/dist/", "/build/", "/vendor/", "/.git/",
+    "/migrations/", "/__pycache__/", "/.venv/", "/venv/",
+    "_test.", ".test.", ".spec.", "/test/", "/tests/", "/testdata/"
+  ]
+}

@@ -1,0 +1,33 @@
+# Pinned inputs for the complexity gate CI job (see ci/gitlab/ and ci/github/).
+#
+# Version-and-hash pinned, not a bare `pip install lizard`. That job runs on
+# merge/pull request pipelines — including from forks — and pip executes
+# packaging code at install time, so an unpinned resolve is arbitrary
+# third-party code running in a job that carries a CI token. Pin every tool a
+# gate runs on, for the same reason a scanner image is digest-pinned: a tool
+# release must not silently change what blocks a merge. This is that bar for a
+# pip install.
+#
+# --require-hashes is what makes the pin real: without it a matching version
+# from a different artifact still installs. It also forces a complete graph,
+# which is why lizard's two transitive dependencies are pinned here too rather
+# than left implicit.
+#
+# NOT --no-deps: lizard imports pygments at analysis time and reports the failure
+# as "Cannot find the lizard_languages module", which reads like a broken install
+# rather than a missing dependency. Verified: --no-deps makes the reporter exit 2.
+#
+# Both the wheel and the sdist hash are listed per package because pip picks
+# whichever the runner resolves; a wheel-only pin fails if it falls back to sdist.
+#
+# To bump: change the version, re-resolve from PyPI, and update the venv the
+# PostToolUse hook uses (.claude/hooks/.venv) so local and CI stay on one version.
+lizard==1.24.0 \
+    --hash=sha256:a688bc607a891ff4a7836826f25742dc9c1bf648da3075dbd495e199e8848602 \
+    --hash=sha256:2e88a7af9d23a98d3f4a30767134361bd4b7dde02c410209c6c72732a43bbb65
+pathspec==1.1.1 \
+    --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189 \
+    --hash=sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a
+pygments==2.21.0 \
+    --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9 \
+    --hash=sha256:610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c

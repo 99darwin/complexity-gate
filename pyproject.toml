@@ -1,0 +1,6 @@
+# Test configuration only. This kit is deliberately not a Python package: the
+# modules resolve each other by relative sys.path insertion so that install.sh
+# can copy .claude/hooks/ and scripts/ into any repo, in any language, with no
+# pip install step. Packaging it would trade that away for nothing.
+[tool.pytest.ini_options]
+testpaths = ["tests"]

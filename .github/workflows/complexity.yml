@@ -1,0 +1,120 @@
+# Diff-scoped complexity gate for GitHub Actions.
+#
+# Copy this file to .github/workflows/complexity.yml in your repository.
+#
+# NON-BLOCKING BY DESIGN (continue-on-error). This reports a shape problem, not
+# a correctness or security one, so it surfaces on the pull request and never
+# stops it. Drop continue-on-error once your team has run it long enough to
+# trust the bar.
+#
+# DIFF-SCOPED, not whole-tree. Measured on the monorepo this was extracted
+# from: a whole-tree run reported 276 findings across 81 files, so scoring the
+# whole tree would fail every run on pre-existing code while saying nothing
+# about the change under review. This scores only the files the pull request
+# touches, which is what makes dropping continue-on-error realistic later — the
+# question it answers is "did this change add complexity", and that has an
+# achievable answer of zero.
+#
+# SHARED THRESHOLDS. The numbers come from .claude/hooks/complexity_thresholds.json,
+# the same file the agent-time PostToolUse hook and the
+# reduce-cyclomatic-complexity skill read. One bar in three places, not three.
+name: complexity
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+# Read-only, deliberately. The findings reach the reviewer as annotations and a
+# job summary, neither of which needs write access — so a fork PR running this
+# workflow never holds a token that can comment, label, or push. Switching the
+# surface to PR comments would require pull-requests: write, and that is the
+# trade being made, not a detail.
+permissions:
+  contents: read
+
+jobs:
+  complexity:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      # Pinned to a commit SHA, not a tag: a tag is mutable, and an action
+      # release must not silently change what a gate reports. v4.4.0.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # The diff base is an ancestor commit and a shallow clone does not
+          # guarantee it is present — `git diff` against a missing SHA fails,
+          # and the fallback below would then silently score the whole tree.
+          fetch-depth: 0
+
+      # A venv, not a bare `pip install`: ubuntu-latest ships an
+      # externally-managed system Python, where a direct install either fails
+      # or needs --break-system-packages, which is a worse habit to copy into
+      # other workflows.
+      #
+      # Version-and-hash pinned via scripts/complexity-requirements.txt. This
+      # workflow runs on pull requests including from forks, and pip executes
+      # packaging code at install time, so an unpinned resolve is third-party
+      # code running in CI. --require-hashes is what makes the pin real:
+      # without it a matching version from a different artifact still installs.
+      - name: Install analyzer
+        run: |
+          python3 -m venv .complexity-venv
+          .complexity-venv/bin/pip install --quiet --no-cache-dir \
+            --require-hashes -r scripts/complexity-requirements.txt
+
+      # On a pull request, base.sha is the base branch commit GitHub computed
+      # for this PR. On a push there is no base, so fall back to the previous
+      # commit: that keeps a post-merge run meaningful (it scores what the merge
+      # introduced) without ever falling back to the whole tree.
+      #
+      # -z and --diff-filter=d: NUL separation survives a path containing a
+      # space, and d drops deletions, whose paths no longer exist to analyze.
+      # The reporter tolerates a missing path anyway; this keeps the count
+      # honest.
+      - name: Collect changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base="${BASE_SHA:-HEAD~1}"
+          echo "complexity: diffing against $base"
+          git diff -z --name-only --diff-filter=d "$base"...HEAD > .changed-files
+
+      - name: Report
+        run: |
+          mkdir -p gate-findings
+          .complexity-venv/bin/python scripts/complexity-report.py \
+            --files-from .changed-files \
+            --out-dir gate-findings
+
+      # Distinguish "no findings" from "nothing ran". An empty pull request
+      # legitimately produces [], which is a valid non-empty file; a crashed
+      # reporter produces neither. test -s stays separate from the parse so the
+      # size check holds even if the interpreter is what broke. The shape check
+      # raises SystemExit rather than using assert, which `python3 -O` strips.
+      - name: Assert the report produced
+        run: |
+          test -s gate-findings/complexity.json
+          test -s gate-findings/gl-code-quality-complexity.json
+          python3 - <<'PY'
+          import json
+          json.load(open('gate-findings/complexity.json'))
+          d = json.load(open('gate-findings/gl-code-quality-complexity.json'))
+          if not isinstance(d, list):
+              raise SystemExit('code quality report is not a JSON array')
+          PY
+
+      # Annotations land on the diff; the job summary stays complete past the
+      # annotation cap. Runs even when an earlier step failed so a partial
+      # report is still visible.
+      - name: Annotate
+        if: always()
+        run: .complexity-venv/bin/python scripts/complexity-annotate.py --findings gate-findings/complexity.json
+
+      # Pinned for the same reason as checkout, above. v4.6.2.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: gate-findings-complexity-${{ github.sha }}
+          path: gate-findings/
+          retention-days: 90
