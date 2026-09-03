@@ -22,9 +22,9 @@ the list, and ci/gitlab/complexity.yml holds the measurements behind that choice
 
 RULE SELECTION. --rules picks which finding classes reach the report, and its
 default is the subset the CI jobs run on — they pass no --rules of their own.
-The classes have very different signal. Measured on the ~90k-line TypeScript
-monorepo this kit was extracted from: of the 276 findings a whole-tree run
-reported, 148 were duplicate-block hits, and the largest single one was an
+The classes have very different signal. Measured on the 64k-line TypeScript
+monorepo this kit was extracted from: of the 326 findings a whole-tree run
+reports, 179 are duplicate-block hits, and the largest single one is an
 ESLint config file, where a "4-line block repeated at 8 sites" is the repeated
 shape of a rule object — config data, not an extractable helper. file-length
 flags a whole file, so it fires on any change that touches a large existing file

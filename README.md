@@ -20,9 +20,10 @@ to whoever has to change it in three months.
 
 The design decisions worth knowing before you install it:
 
-**Diff-scoped, not whole-tree.** On the ~90k-line TypeScript monorepo this was
-extracted from, a whole-tree run reported 276 findings across 81 files. Gating
-on that fails every pipeline forever on code nobody in the pull request wrote.
+**Diff-scoped, not whole-tree.** On the TypeScript monorepo this was extracted
+from — 64k lines excluding tests and generated code — a whole-tree run reports
+326 findings across 90 files. Gating on that fails every pipeline forever on
+code nobody in the pull request wrote.
 Scoring only the changed files asks a question with an achievable answer of
 zero: *did this change add complexity?*
 
@@ -33,7 +34,7 @@ reports without stopping anyone. Drop that once your team trusts the bar.
 **The hook is stricter than CI.** The hook runs all six rules on the single file
 just written, where a human is present to judge context. CI runs four of them
 (no `duplicate-block`, no `file-length`) because those two are noisy without
-that context — 148 of those 276 findings were duplicate-block hits, and the
+that context — 179 of those 326 findings were duplicate-block hits, and the
 biggest was an ESLint config where the "repeated block" was the repeated shape
 of a rule object. Config data, not an extractable helper.
 
