@@ -62,7 +62,8 @@ cp "$SRC/.claude/skills/reduce-cyclomatic-complexity/SKILL.md" \
 echo "  .claude/skills/reduce-cyclomatic-complexity/SKILL.md"
 
 for f in complexity-report.py complexity-annotate.py complexity_paths.py \
-         complexity_rules.py complexity-requirements.txt; do
+         complexity_rules.py complexity-changed-files.sh \
+         complexity-requirements.txt; do
     cp "$SRC/scripts/$f" "$DEST/scripts/$f"
     echo "  scripts/$f"
 done

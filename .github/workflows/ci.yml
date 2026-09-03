@@ -65,7 +65,7 @@ jobs:
       # install.sh is POSIX sh and is the first thing anyone runs, so it is
       # linted rather than trusted.
       - name: Shellcheck
-        run: shellcheck install.sh .claude/hooks/run_check_complexity.sh
+        run: shellcheck install.sh .claude/hooks/run_check_complexity.sh scripts/complexity-changed-files.sh
 
       # .github/workflows/complexity.yml is a byte-identical copy of the example
       # in ci/github/ — this repository dogfoods what it hands out. Without this
@@ -85,6 +85,14 @@ jobs:
           test -f "$target/.claude/hooks/complexity_thresholds.json"
           test -f "$target/.claude/skills/reduce-cyclomatic-complexity/SKILL.md"
           grep -q 'run_check_complexity.sh' "$target/.claude/settings.json"
+          # Everything in scripts/ must be installed, except the test-only
+          # closure. A file added here and forgotten in install.sh's copy list
+          # breaks a consuming repo's CI, not this one's — so assert it here.
+          for f in scripts/*; do
+            test -f "$f" || continue
+            case "$f" in scripts/complexity-dev-requirements.txt) continue ;; esac
+            test -f "$target/$f" || { echo "install.sh did not copy $f"; exit 1; }
+          done
           .venv/bin/python "$target/.claude/hooks/check_complexity.py" --report "$target/scripts"
           # Idempotent: a second run must not clobber a tuned bar.
           echo '{"max_cyclomatic_complexity": 42}' > "$target/.claude/hooks/complexity_thresholds.json"
