@@ -68,13 +68,9 @@ complexity_gate:
     # Written outside gate-findings/ on purpose: that directory is uploaded as
     # an artifact, and this is a scratch input, not a report.
     #
-    # -z and --diff-filter=d: NUL separation survives a path containing a space,
-    # and d drops deletions, whose paths no longer exist to analyze. The
-    # reporter tolerates a missing path anyway; this keeps the count honest.
-    - |
-      base="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-HEAD~1}"
-      echo "complexity: diffing against $base"
-      git diff -z --name-only --diff-filter=d "$base"...HEAD > .changed-files
+    # The base resolution is shared with the GitHub flavor so the two cannot
+    # disagree about what "the diff" means; see that script for the fallbacks.
+    - sh scripts/complexity-changed-files.sh "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" > .changed-files
     - python3 scripts/complexity-report.py
       --files-from .changed-files
       --out-dir gate-findings

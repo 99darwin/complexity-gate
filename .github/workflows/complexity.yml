@@ -64,21 +64,13 @@ jobs:
             --require-hashes -r scripts/complexity-requirements.txt
 
       # On a pull request, base.sha is the base branch commit GitHub computed
-      # for this PR. On a push there is no base, so fall back to the previous
-      # commit: that keeps a post-merge run meaningful (it scores what the merge
-      # introduced) without ever falling back to the whole tree.
-      #
-      # -z and --diff-filter=d: NUL separation survives a path containing a
-      # space, and d drops deletions, whose paths no longer exist to analyze.
-      # The reporter tolerates a missing path anyway; this keeps the count
-      # honest.
+      # for this PR. On a push there is none, and the script falls back to HEAD^
+      # so a post-merge run still scores what the merge introduced. See the
+      # script for what happens when neither exists.
       - name: Collect changed files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          base="${BASE_SHA:-HEAD~1}"
-          echo "complexity: diffing against $base"
-          git diff -z --name-only --diff-filter=d "$base"...HEAD > .changed-files
+        run: sh scripts/complexity-changed-files.sh "$BASE_SHA" > .changed-files
 
       - name: Report
         run: |
